@@ -1,0 +1,236 @@
+---
+title: <center><h1>Home Range Assignment</h1></center>
+author: 
+  <center>River A. Watson</center>
+output: rmdformats::downcute
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Packages, message = FALSE, warning=FALSE, echo=FALSE, results='hide'}
+packages<-c("adehabitatHR","data.table","ggfortify","grid","move","moveVis","pbapply","plotly","rgdal","sp","tidyverse","viridis", "OpenStreetMap")
+sapply(packages, library, character.only=T)
+library(rmdformats)
+```
+<center>!["Newfoundland"](images\Newfoundland.png)</center>
+<br>
+
+<center>!["Greenland Cod"](images\greenlandcod.jpg)</center>
+<br>
+
+
+<center>!["*The Sacred Cod*"](images\sacredcod.jpg)</center>
+
+<br>
+```{r data, fig.width=10}
+yearone <- read.csv("data/fjord_year1.csv")
+head(yearone)
+```
+<br>
+```{r plotyly, fig.width=10}
+qaqc_plot <- ggplot() + geom_point(data=yearone, 
+                                   aes(POINT_X,POINT_Y,
+                                       color=Tag)) +
+                        labs(x="Easting", y="Northing") +
+                        guides(color=guide_legend("Tag ID"))
+
+#ggplotly(qaqc_plot)
+qaqc_plot
+```
+<br>
+```{r lapply function, echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+#lapply(split(yearone, yearone$Tag), 
+#       function(x)write.csv(x, file = paste(x$Tag[1],".csv", sep = ""), row.names = FALSE))
+```
+41 individuals tracked in year one
+
+
+```{r making files}
+files <- list.files(path = ".", pattern = "[t299]+[12-53]+", full.names = TRUE)
+```
+<br>
+```{r setting up UTM, message = FALSE, warning=FALSE}
+utm_points <- cbind(yearone$POINT_X, yearone$POINT_Y)
+utm_locations <- SpatialPoints(utm_points, 
+                 proj4string=CRS("+proj=utm +zone=21 +datum=WGS84"))
+proj_lat.lon <- as.data.frame(spTransform(
+                utm_locations, CRS("+proj=longlat +datum=WGS84")))
+colnames(proj_lat.lon) <- c("x","y")
+raster <- openmap(c(max(proj_lat.lon$y)+0.01, min(proj_lat.lon$x)-0.01), 
+                  c(min(proj_lat.lon$y)-0.01, max(proj_lat.lon$x)+0.01), 
+                  type = "bing")
+raster_utm <- openproj(raster, 
+              projection = "+proj=utm +zone=21 +datum=WGS84 +units=m +no_defs")
+```
+<br>
+```{r autoplot}
+autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() +
+  theme(legend.position="bottom") +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  geom_point(data=yearone, aes(POINT_X,POINT_Y,
+             color=Tag), size = 2.5, alpha = 0.8) +
+  theme(axis.title = element_text(face="bold")) + labs(x="Easting",
+        y="Northing") + guides(color=guide_legend("Tag ID")) +
+  theme(legend.position = "none") 
+```
+```{r ineractive leaflet map, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
+library(leaflet)
+colors <- colorFactor(palette = "Accent", domain = yearone$tag)
+leaflet(yearone) %>% 
+  addTiles(group = "OSM")%>%
+  addProviderTiles(providers[["CartoDB.Positron"]], group = "CartoDB") %>%
+  addProviderTiles(providers[["Esri.NatGeoWorldMap"]], group = "NatGeo") %>%
+  addProviderTiles(providers[["Esri.WorldImagery"]], group = "ESRI") %>%
+  addCircleMarkers(lng=yearone$COA_Lon, lat=yearone$COA_Lat,
+                   popup = yearone$Tag,
+                   label = yearone$Tag,
+                   group = yearone$Tag,
+                   weight = .5,
+                   color = ~colors(Tag)) %>% addLayersControl(baseGroups = c("OSM", "CartoDB", "NatGeo", "ESRI"), overlayGroups = c(unique(yearone$Tag)),
+    options = layersControlOptions(collapsed = FALSE))
+```
+
+
+## Home Range Analyses
+
+
+
+
+## MCP
+
+
+```{r test, message=FALSE, warning = FALSE}
+library(rgdal)
+library(maptools)
+
+  data <- read.csv("t29953.csv")  
+  x <- as.data.frame(data$POINT_X)
+  y <- as.data.frame(data$POINT_Y)
+  xy <- c(x,y)
+  data.proj <- SpatialPointsDataFrame(xy,data, proj4string = CRS("+init=epsg:4326 +proj=longlat 
++ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"))
+  xy <- SpatialPoints(data.proj@coords)
+  xy <- SpatialPoints(xy@coords)
+  mcp.out <- mcp(xy, percent=100, unout="ha")
+  mcp.points <- cbind((data.frame(xy)),data$Tag)
+  colnames(mcp.points) <- c("x","y", "TagID")
+  mcp.poly <- fortify(mcp.out)
+  units <- grid.text(paste(round(mcp.out@data$area,2),"ha"), x=0.85,  y=0.95,
+                     gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+  mcp.plot <- autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+    theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+    geom_polygon(data=mcp.poly, aes(x=long, y=lat), fill = "white", alpha=0.6) +
+    geom_point(data=mcp.points, aes(x=x, y=y), color = "blue") + 
+    labs(x="Easting (m)", y="Northing (m)", title=mcp.points$TagID) +
+    theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5)) + 
+    annotation_custom(units)
+  mcp.plot
+
+```
+
+## KDE
+
+```{r KDE plot, message=FALSE, warning=FALSE, echo=TRUE, fig.height=5, fig.width=6}
+
+  kdata <- read.csv("t29912.csv")
+  x <- as.data.frame(kdata$POINT_X)
+  y <- as.data.frame(kdata$POINT_Y)
+  xy <- c(x,y)
+  kdata.proj <- SpatialPointsDataFrame(xy,kdata, proj4string = CRS("+proj=utm +zone=21 +datum=WGS84 +units=m +no_defs"))
+  xy <- SpatialPoints(kdata.proj@coords)
+  kde<-kernelUD(xy, h="href", kern="bivnorm", grid=100)
+  ver <- getverticeshr(kde, 95)
+  kde.points <- cbind((data.frame(kdata.proj@coords)),kdata$Tag)
+  colnames(kde.points) <- c("x","y","ID")
+  kde.poly <- fortify(ver)
+  units <- grid.text(paste(round(ver$area,2)," ha"), x=0.85,  y=0.95,
+                     gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+  kde.plot <- autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+    theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+    geom_polygon(data=kde.poly, aes(x=long, y=lat), fill = "white", alpha = 0.8) +
+    geom_point(data=kde.points, aes(x=x, y=y), color = "blue") +
+    labs(x="Easting (m)", y="Northing (m)", title=kde.points$ID) +
+    theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5)) + 
+    annotation_custom(units)
+    
+  kde.plot
+
+```
+## BB
+
+```{r bb plot, message=FALSE, warning=FALSE}
+library(lubridate)
+library(rgeos)
+
+indone <- read.csv("t29937.csv") 
+Date<-dmy_hm(indone$Hourbin)
+date <- as.POSIXct(Date, tz="Canada/Newfoundland")
+
+indone$date <- date
+yearone.reloc <- cbind.data.frame(indone$POINT_X, indone$POINT_Y,
+                                as.vector(indone$Tag),
+                                as.POSIXct(date))
+colnames(yearone.reloc) <- c("x","y","id","date")
+trajectory <- as.ltraj(yearone.reloc, date=date, id="indone")
+sig1 <- liker(trajectory, sig2 = 40, rangesig1 = c(0, 5), plotit = FALSE)
+one.traj <- kernelbb(trajectory, sig1 = .7908, sig2 = 40, grid = 100)
+bb_ver <- getverticeshr(one.traj, 80)
+bb_poly <- fortify(bb_ver, 
+                   proj4string = CRS("+proj=utm +zone=21+
+                                     datum=WGS84 +units=m +no_defs"))
+colnames(bb_poly) <- c("x","y","order","hole","piece","id","group")
+bb_image <- crop(one.traj, bb_ver, 
+                 proj4string = CRS("+proj=utm +zone=21 +
+                                   datum=WGS84 +units=m +no_defs"))
+bb_units <- grid.text(paste(round(bb_ver$area,2)," ha"), x=0.85,  y=0.95,
+                   gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+bb.plot <- autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  geom_tile(data=bb_image, 
+            aes(x=bb_image@coords[,1], y=bb_image@coords[,2],
+            fill = bb_image@data$ud)) +
+  geom_polygon(data=bb_poly, aes(x=x, y=y, group = group), color = "black", fill = NA) +
+  scale_fill_viridis_c(option = "inferno") + annotation_custom(bb_units) +
+  labs(x="Easting (m)", y="Northing (m)", title="OPHA1") +
+  theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
+bb.plot
+
+```
+
+```{r bb}
+indone <- read.csv("t29953.csv") 
+Date<-dmy_hm(indone$Hourbin)
+date <- as.POSIXct(Date, tz="Canada/Newfoundland")
+
+indone$date <- date
+yearone.reloc <- cbind.data.frame(indone$POINT_X, indone$POINT_Y,
+                                as.vector(indone$Tag),
+                                as.POSIXct(date))
+colnames(yearone.reloc) <- c("x","y","id","date")
+trajectory <- as.ltraj(yearone.reloc, date=date, id="indone")
+sig1 <- liker(trajectory, sig2 = 40, rangesig1 = c(0, 5), plotit = FALSE)
+one.traj <- kernelbb(trajectory, sig1 = .7908, sig2 = 40, grid = 100)
+bb_ver <- getverticeshr(one.traj, 80)
+bb_poly <- fortify(bb_ver, 
+                   proj4string = CRS("+proj=utm +zone=21+
+                                     datum=WGS84 +units=m +no_defs"))
+colnames(bb_poly) <- c("x","y","order","hole","piece","id","group")
+bb_image <- crop(one.traj, bb_ver, 
+                 proj4string = CRS("+proj=utm +zone=21 +
+                                   datum=WGS84 +units=m +no_defs"))
+bb_units <- grid.text(paste(round(bb_ver$area,2)," ha"), x=0.85,  y=0.95,
+                   gp=gpar(fontface=4, col="white", cex=0.9), draw = FALSE)
+bb.plot <- autoplot.OpenStreetMap(raster_utm, expand = TRUE) + theme_bw() + theme(legend.position="none") +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  geom_tile(data=bb_image, 
+            aes(x=bb_image@coords[,1], y=bb_image@coords[,2],
+            fill = bb_image@data$ud)) +
+  geom_polygon(data=bb_poly, aes(x=x, y=y, group = group), color = "black", fill = NA) +
+  scale_fill_viridis_c(option = "inferno") + annotation_custom(bb_units) +
+  labs(x="Easting (m)", y="Northing (m)", title="OPHA1") +
+  theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
+bb.plot
+```
+
